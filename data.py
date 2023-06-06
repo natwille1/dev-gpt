@@ -1,8 +1,18 @@
 #%%
 import torch
 import numpy as np 
+import torch.nn as nn
+from torch.nn import functional as F 
 
 data_file =  "./input.txt"
+batch_size = 4
+block_size = 8 
+max_iters = 5000
+eval_interval = 300
+learning_rate = 1e-3
+device = 'mps'
+eval_iters = 200
+
 
 def read_data(data_file = data_file):
     with open(data_file, "r") as f:
@@ -49,19 +59,46 @@ yb.shape
 
 #%%
 # baseline model == bigram model
-import torch.nn as nn
-from torch.nn import functional as F 
+n_embd = 32
+
+class Head(nn.Module):
+    def __init__(self, head_size) -> None:
+        super().__init__()
+        self.key = nn.Linear(n_embd, head_size, bias=False)
+        self.query = nn.Linear(n_embd, head_size, bias=False)
+        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+    
+    def forward(self, x):
+        B, T, C = x.shape
+        k = self.key(x)
+        q = self.query(x)
+        v = self.value(x)
+        weights = q @ k.transpose(-2, -1) * C**-0.5 # (B, T, C) @ (B, C, T) --> (B, T, T)
+        weights = weights.masked_fill(self.tril[:T, :T] == 0, float("-inf")) #(B, T, T)
+        weights = F.softmax(weights, dim=-1) # (B, T, T)
+        out = weights @ v # (B, T, T) @ (B, T, C) --> (B, T, C)
+        return out
+
 
 class BigramLanguageModel(nn.Module):
     def __init__(self, vocab_size) -> None:
         super().__init__()
         # each token reads off the logits for the next token from the embedding table
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_head = Head(head_size=n_embd) # same as C
+        self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets = None):
+        B, T = idx.shape
         # idx and targets are both tensors of B, T
         # returns score for next token of size B, T, C (where C == vocab size)
-        logits = self.token_embedding_table(idx)
+        token_embeddings = self.token_embedding_table(idx) #(B, T, C) where C == n_embd
+        position_embeddings = self.position_embedding_table(torch.arange(T, device=device) #(T, C)
+        x = token_embeddings + position_embeddings # will broadcast position_embeddings from T, C to 1, T, C so it can sum
+        x = self.sa_head(x)
+        logits = self.lm_head(x) #(B, T, C) where C == vocab size
         if targets is None:
             loss = None
         else:
@@ -74,7 +111,8 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx = B x T x C
         for _ in range(max_new_tokens):
-            logits, loss = self(idx)
+            idx_cond = idx[:, -block_size:]
+            logits, loss = self(idx_cond)
             logits = logits[:, -1:, :] # becomes B x C where -1 == predictions for next token
             probs = F.softmax(logits, dim = -1) # along C in B x C
             # sample from distribution
@@ -88,9 +126,9 @@ inp = torch.zeros([1,1], dtype=torch.long)
 print(text_decoder(m.generate(idx=inp, max_new_tokens=100)[0].tolist()))
 # %%
 # simple training loop
-optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
+optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
 
-for steps in range(100):
+for steps in range(max_iters):
     xb, yb = get_batch("train")
     logits, loss = m(idx=xb, targets=yb)
     optimizer.zero_grad(set_to_none=True)
