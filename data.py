@@ -122,7 +122,7 @@ class BigramLanguageModel(nn.Module):
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(Block(n_embd=n_embd, n_head=4), Block(n_embd=n_embd, n_head=4), Block(n_embd=n_embd, n_head=4), nn.LayerNorm(n_embd))
         # self.sa_head = Head(head_size=n_embd) # same as C
-        self.sa_head = MultiHeadAttention(num_heads = 4, head_size=n_embd//4) # same as C - 4 heads of 8 outputs == 32
+        self.sa_head = MultiHeadAttention(num_heads = 4, head_size=n_embd//4) # same as C = 4 heads of 8 outputs == 32
         self.fforw = FeedForward(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
@@ -169,16 +169,13 @@ TRAIN_DATA, VAL_DATA = train_val_split(text)
 xb, yb = get_batch("train")
 model = BigramLanguageModel(vocab_size=vocab_size)
 m = model.to(device)
-#%%
-xb
 
 #%%
-# logits, loss = m(idx=xb.to(device), targets=yb.to(device))
+# TEST
 logits, loss = m(idx=xb, targets=yb)
 inp = torch.zeros([1,1], dtype=torch.long)
 print(text_decoder(m.generate(idx=inp, max_new_tokens=100)[0].tolist()))
 # %%
-
 # simple training loop
 optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
 eval_interval = 10
@@ -192,8 +189,6 @@ for steps in range(max_iters):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-
-#%%
 
 #%%
 #self-attention trick
