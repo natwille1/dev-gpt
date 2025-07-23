@@ -1,0 +1,8 @@
+[tool.ruff]
+line-length = 79
+lint.extend-select = ["I"]
+extend-include = ["*.ipynb"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+xfail_strict = true
