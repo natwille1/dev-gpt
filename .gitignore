@@ -1,1 +1,4 @@
 resaro_takehome
+**/__py_cache__
+*.pt
+*.pth

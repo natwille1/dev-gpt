@@ -406,46 +406,6 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     plt.show()
 
 
-if __name__ == "__main__":
-    GPT_CONFIG_124M = {
-        "vocab_size": 50257,  # Vocabulary size
-        "context_length": 1024,  # Context length
-        "emb_dim": 768,  # Embedding dimension
-        "n_heads": 12,  # Number of attention heads
-        "n_layers": 12,  # Number of layers
-        "drop_rate": 0.1,  # Dropout rate
-        "qkv_bias": False,  # Query-Key-Value bias
-    }
-
-    torch.manual_seed(123)
-    model = GPTModel(GPT_CONFIG_124M)
-    model.eval()  # disable dropout
-
-    start_context = "Hello, I am"
-
-    tokenizer = tiktoken.get_encoding("gpt2")
-    encoded = tokenizer.encode(start_context)
-    encoded_tensor = torch.tensor(encoded).unsqueeze(0)
-
-    print(f"\n{50 * '='}\n{22 * ' '}IN\n{50 * '='}")
-    print("\nInput text:", start_context)
-    print("Encoded input text:", encoded)
-    print("encoded_tensor.shape:", encoded_tensor.shape)
-
-    out = generate_text_simple(
-        model=model,
-        idx=encoded_tensor,
-        max_new_tokens=10,
-        context_size=GPT_CONFIG_124M["context_length"],
-    )
-    decoded_text = tokenizer.decode(out.squeeze(0).tolist())
-
-    print(f"\n\n{50 * '='}\n{22 * ' '}OUT\n{50 * '='}")
-    print("\nOutput:", out)
-    print("Output length:", len(out[0]))
-    print("Output text:", decoded_text)
-
-
 def assign(left, right):
     if left.shape != right.shape:
         raise ValueError(
@@ -573,3 +533,77 @@ def text_to_token_ids(text, tokenizer):
 def token_ids_to_text(token_ids, tokenizer):
     flat = token_ids.squeeze(0)
     return tokenizer.decode(flat.tolist())
+
+
+def custom_collate_fn(
+    batch,
+    pad_token_id=50256,
+    ignore_index=-100,
+    allowed_max_length=None,
+    device="cpu",
+):
+    batch_max_length = max(len(item) + 1 for item in batch)
+    inputs_lst, targets_lst = [], []
+    for item in batch:
+        new_item = item.copy()
+        new_item += [pad_token_id]
+        padded = new_item + [pad_token_id] * (batch_max_length - len(new_item))
+        inputs = torch.tensor(padded[:-1])
+        targets = torch.tensor(padded[1:])
+
+        mask = targets == pad_token_id
+        # returns 2D tensor with indices that are non-zero
+        # squeeze the first dim to match 1D targets dim
+        indices = torch.nonzero(mask).squeeze()
+        if indices.numel() > 1:
+            # keep first end-of-text token
+            targets[indices[1:]] = ignore_index
+        if allowed_max_length is not None:
+            inputs = inputs[:allowed_max_length]
+            targets = targets[:allowed_max_length]
+
+        inputs_lst.append(inputs)
+        targets_lst.append(targets)
+    inputs_tensor = torch.stack(inputs_lst).to(device)
+    targets_tensor = torch.stack(targets_lst).to(device)
+    return inputs_tensor, targets_tensor
+
+
+if __name__ == "__main__":
+    GPT_CONFIG_124M = {
+        "vocab_size": 50257,  # Vocabulary size
+        "context_length": 1024,  # Context length
+        "emb_dim": 768,  # Embedding dimension
+        "n_heads": 12,  # Number of attention heads
+        "n_layers": 12,  # Number of layers
+        "drop_rate": 0.1,  # Dropout rate
+        "qkv_bias": False,  # Query-Key-Value bias
+    }
+
+    torch.manual_seed(123)
+    model = GPTModel(GPT_CONFIG_124M)
+    model.eval()  # disable dropout
+
+    start_context = "Hello, I am"
+
+    tokenizer = tiktoken.get_encoding("gpt2")
+    encoded = tokenizer.encode(start_context)
+    encoded_tensor = torch.tensor(encoded).unsqueeze(0)
+
+    print(f"\n{50 * '='}\n{22 * ' '}IN\n{50 * '='}")
+    print("\nInput text:", start_context)
+    print("Encoded input text:", encoded)
+    print("encoded_tensor.shape:", encoded_tensor.shape)
+
+    out = generate_text_simple(
+        model=model,
+        idx=encoded_tensor,
+        max_new_tokens=10,
+        context_size=GPT_CONFIG_124M["context_length"],
+    )
+    decoded_text = tokenizer.decode(out.squeeze(0).tolist())
+
+    print(f"\n\n{50 * '='}\n{22 * ' '}OUT\n{50 * '='}")
+    print("\nOutput:", out)
+    print("Output length:", len(out[0]))
+    print("Output text:", decoded_text)
